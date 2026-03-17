@@ -16,13 +16,13 @@ def read_cookie():
 def get_level_exp(page):
     """获取等级和经验，如果找不到返回'未知'"""
     try:
-        level_ele = page.ele('xpath://*[@id="pagelet_aside/pagelet/my_tieba"]/div/div[1]/div[3]/div[1]/a/div[2]').text
-        level = level_ele if level_ele else "未知"
+        level_ele = page.ele('xpath://*[contains(text(),"等级")]/following-sibling::*', timeout=3)
+        level = level_ele.text if level_ele else "未知"
     except:
         level = "未知"
     try:
-        exp_ele = page.ele('xpath://*[@id="pagelet_aside/pagelet/my_tieba"]/div/div[1]/div[3]/div[2]/a/div[2]/span[1]').text
-        exp = exp_ele if exp_ele else "未知"
+        exp_ele = page.ele('xpath://*[contains(text(),"经验")]/following-sibling::*', timeout=3)
+        exp = exp_ele.text if exp_ele else "未知"
     except:
         exp = "未知"
     return level, exp
@@ -34,6 +34,9 @@ if __name__ == "__main__":
     notice = ''
 
     co = ChromiumOptions().headless()
+    co.set_argument("--no-sandbox")
+    co.set_argument("--disable-dev-shm-usage")
+    co.set_argument("--disable-gpu")
     chromium_path = shutil.which("chromium-browser")
     if chromium_path:
         co.set_browser_path(chromium_path)
@@ -45,7 +48,7 @@ if __name__ == "__main__":
     page.set.cookies(read_cookie())
     page.refresh()
     page.wait.load_start()
-    time.sleep(3)
+    time.sleep(4)
 
     over = False
     yeshu = 0
@@ -55,13 +58,13 @@ if __name__ == "__main__":
         yeshu += 1
         page.get(f"https://tieba.baidu.com/i/i/forum?&pn={yeshu}")
         page.wait.load_start()
-        time.sleep(3)
+        time.sleep(4)
 
         for i in range(2, 22):
-            element = page.ele(
-                f'xpath://*[@id="like_pagelet"]/div[1]/div[1]/table/tbody/tr[{i}]/td[1]/a'
-            )
             try:
+                element = page.ele(
+                    f'xpath://*[@id="like_pagelet"]/div[1]/div[1]/table/tbody/tr[{i}]/td[1]/a', timeout=3
+                )
                 tieba_url = element.attr("href")
                 name = element.attr("title")
             except:
@@ -74,61 +77,60 @@ if __name__ == "__main__":
 
             page.get(tieba_url)
             page.wait.load_start()
-            time.sleep(3)
+            time.sleep(4)
 
-            # 判断是否签到
-            is_sign_ele = page.ele('xpath://*[@id="signstar_wrapper"]/a/span[1]')
-            is_sign = is_sign_ele.text if is_sign_ele else ""
-            if is_sign.startswith("连续"):
+            # 判断是否已签到（新版匹配）
+            is_signed = False
+            if page.ele('text():已签到', timeout=2) or page.ele('text():连签', timeout=2):
+                is_signed = True
+
+            if is_signed:
                 level, exp = get_level_exp(page)
                 msg = f"{name}吧：已签到过！等级：{level}，经验：{exp}"
                 print(msg)
                 notice += msg + '\n\n'
                 print("-------------------------------------------------")
             else:
-                # ===================== 修复：新版贴吧签到按钮定位 =====================
-                sign_ele = page.ele('text():签到', timeout=10)
+                # ===================== 精准适配你截图的新版签到按钮 =====================
+                sign_ele = page.ele('xpath://div[contains(@class,"follow-sign")]//div[text()="签到"]', timeout=5)
                 if not sign_ele:
-                    sign_ele = page.ele('@class:=signbtn', timeout=5)
+                    sign_ele = page.ele('xpath://div[contains(@class,"operate-btn")]//div[text()="签到"]', timeout=3)
                 if not sign_ele:
-                    sign_ele = page.ele('xpath://div[contains(@class,"sign")]//a[contains(text(),"签到")]', timeout=5)
-                # ====================================================================
-                
+                    sign_ele = page.ele('text():签到', timeout=3)
+                # ======================================================================
+
                 if sign_ele:
                     try:
                         sign_ele.click()
-                        time.sleep(2)
+                        time.sleep(3)
                         page.refresh()
                         page.wait.load_start()
-                        time.sleep(2)
+                        time.sleep(3)
 
                         level, exp = get_level_exp(page)
                         msg = f"{name}吧：成功签到！等级：{level}，经验：{exp}"
                         print(msg)
                         notice += msg + '\n\n'
                     except Exception as e:
-                        msg = f"{name}吧：签到点击失败，错误：{str(e)}"
+                        msg = f"{name}吧：签到点击失败：{str(e)}"
                         print(msg)
                         notice += msg + '\n\n'
                 else:
-                    msg = f"错误！{name}吧：找不到签到按钮（已适配新版）"
+                    msg = f"错误！{name}吧：找不到新版签到按钮"
                     print(msg)
                     notice += msg + '\n\n'
                 print("-------------------------------------------------")
 
             count += 1
-            # 修复返回逻辑，避免页面错乱
             page.get(f"https://tieba.baidu.com/i/i/forum?&pn={yeshu}")
             page.wait.load_start()
-            time.sleep(2)
+            time.sleep(3)
 
+    # Server酱通知
     if "SendKey" in os.environ:
         api = f'https://sc.ftqq.com/{os.environ["SendKey"]}.send'
         title = u"贴吧签到信息"
-        data = {
-        "text":title,
-        "desp":notice
-        }
+        data = {"text": title, "desp": notice}
         try:
             req = requests.post(api, data=data, timeout=60)
             if req.status_code == 200:
