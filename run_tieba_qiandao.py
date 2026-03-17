@@ -33,7 +33,6 @@ if __name__ == "__main__":
     # 通知信息
     notice = ''
 
-
     co = ChromiumOptions().headless()
     chromium_path = shutil.which("chromium-browser")
     if chromium_path:
@@ -45,8 +44,8 @@ if __name__ == "__main__":
     page.get(url)
     page.set.cookies(read_cookie())
     page.refresh()
-    page._wait_loaded(15)
-
+    page.wait.load_start()
+    time.sleep(3)
 
     over = False
     yeshu = 0
@@ -55,12 +54,12 @@ if __name__ == "__main__":
     while not over:
         yeshu += 1
         page.get(f"https://tieba.baidu.com/i/i/forum?&pn={yeshu}")
-
-        page._wait_loaded(15)
+        page.wait.load_start()
+        time.sleep(3)
 
         for i in range(2, 22):
             element = page.ele(
-                f'xpath://*[@id="like_pagelet"]/div[1]/div[1]/table/tbody/tr[{i}]/td[1]/a/@href'
+                f'xpath://*[@id="like_pagelet"]/div[1]/div[1]/table/tbody/tr[{i}]/td[1]/a'
             )
             try:
                 tieba_url = element.attr("href")
@@ -74,10 +73,8 @@ if __name__ == "__main__":
                 break
 
             page.get(tieba_url)
-            
-
-            page.wait.eles_loaded('xpath://*[@id="signstar_wrapper"]/a/span[1]',timeout=30)
-
+            page.wait.load_start()
+            time.sleep(3)
 
             # 判断是否签到
             is_sign_ele = page.ele('xpath://*[@id="signstar_wrapper"]/a/span[1]')
@@ -89,31 +86,41 @@ if __name__ == "__main__":
                 notice += msg + '\n\n'
                 print("-------------------------------------------------")
             else:
-                page.wait.eles_loaded('xpath://a[@class="j_signbtn sign_btn_bright j_cansign"]',timeout=30)
-                sign_ele = page.ele('xpath://a[@class="j_signbtn sign_btn_bright j_cansign"]')
+                # ===================== 修复：新版贴吧签到按钮定位 =====================
+                sign_ele = page.ele('text():签到', timeout=10)
+                if not sign_ele:
+                    sign_ele = page.ele('@class:=signbtn', timeout=5)
+                if not sign_ele:
+                    sign_ele = page.ele('xpath://div[contains(@class,"sign")]//a[contains(text(),"签到")]', timeout=5)
+                # ====================================================================
+                
                 if sign_ele:
-                    sign_ele.click()
-                    time.sleep(1)  # 等待签到动作完成
-                    sign_ele.click()
-                    time.sleep(1)  # 等待签到动作完成
-                    page.refresh()
+                    try:
+                        sign_ele.click()
+                        time.sleep(2)
+                        page.refresh()
+                        page.wait.load_start()
+                        time.sleep(2)
 
-                    page._wait_loaded(15)
-
-                    level, exp = get_level_exp(page)
-                    msg = f"{name}吧：成功！等级：{level}，经验：{exp}"
-                    print(msg)
-                    notice += msg + '\n\n'
-                    print("-------------------------------------------------")
+                        level, exp = get_level_exp(page)
+                        msg = f"{name}吧：成功签到！等级：{level}，经验：{exp}"
+                        print(msg)
+                        notice += msg + '\n\n'
+                    except Exception as e:
+                        msg = f"{name}吧：签到点击失败，错误：{str(e)}"
+                        print(msg)
+                        notice += msg + '\n\n'
                 else:
-                    msg = f"错误！{name}吧：找不到签到按钮，可能页面结构变了"
+                    msg = f"错误！{name}吧：找不到签到按钮（已适配新版）"
                     print(msg)
                     notice += msg + '\n\n'
-                    print("-------------------------------------------------")
+                print("-------------------------------------------------")
 
             count += 1
-            page.back()
-            page._wait_loaded(10)
+            # 修复返回逻辑，避免页面错乱
+            page.get(f"https://tieba.baidu.com/i/i/forum?&pn={yeshu}")
+            page.wait.load_start()
+            time.sleep(2)
 
     if "SendKey" in os.environ:
         api = f'https://sc.ftqq.com/{os.environ["SendKey"]}.send'
@@ -128,7 +135,6 @@ if __name__ == "__main__":
                 print("Server酱通知发送成功")
             else:
                 print(f"通知失败，状态码：{req.status_code}")
-                print(api)
         except Exception as e:
             print(f"通知发送异常：{e}")
     else:
